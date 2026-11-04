@@ -1,5 +1,9 @@
 # VoIPShark (Wireshark 4.x compatible fork)
 
+**English** · [简体中文](README.zh-CN.md)
+
+[![Lua syntax check](https://github.com/Andersonong-github/voipshark/actions/workflows/lua-check.yml/badge.svg)](https://github.com/Andersonong-github/voipshark/actions/workflows/lua-check.yml)
+
 VoIPShark is a set of Wireshark Lua plugins for analysing VoIP traffic: it can
 decrypt SDES-SRTP automatically, export call audio, harvest SIP intelligence
 and detect common SIP attacks.
@@ -11,17 +15,18 @@ loads in current Wireshark releases, because Wireshark 4.4 moved to Lua 5.4
 and removed the old `bit32` library. All fixes are listed in
 [CHANGES.md](CHANGES.md).
 
-> **Targets:** Wireshark 4.4 – 4.6 (Lua 5.4), Windows / macOS / Linux.
-> Also expected to work on Wireshark 4.2 (Lua 5.2), but 4.2 is end-of-life.
-> All 44 Lua files are verified to load under a real Lua 5.4 interpreter with
-> Wireshark API stubs; see [CHANGES.md](CHANGES.md) for the audit.
+> **Verified on:** Wireshark 4.6.7 (portable build, Windows) — the whole plugin
+> set installs, loads without errors, and decrypts the bundled SRTP captures.
+> Also expected to work on Wireshark 4.4 (Lua 5.4) and 4.2 (Lua 5.2, end of
+> life). See [CHANGES.md](CHANGES.md) for the full audit.
 
 ---
 
 ## Features
 
-Everything is available below **Tools → VOIP** (Wireshark GUI only; the
-plugins exit immediately under `tshark`).
+The menu entries are available below **Tools → VOIP** (Wireshark GUI). The
+menu-driven plugins exit immediately under `tshark`; `srtp_decrypt.lua` also
+works headless (see below).
 
 | Plugin | Menu | What it does |
 | --- | --- | --- |
@@ -34,6 +39,51 @@ plugins exit immediately under `tshark`).
 | `attack_detection.lua` | VOIP → VOIP Attack Detection → … | Brute force, message flooding, INVITE flooding, SIP MITM attempts and unauthenticated users. Thresholds are hard-coded in the script (`brute_force_request_threshold = 5`, `invite_flood_threshold = 3`, …). |
 
 Results are shown in text windows with **Search** and **Reset** buttons.
+
+---
+
+## Build ("compiling")
+
+VoIPShark is **pure Lua**: there is no compilation step, no C extension and no
+separate Lua installation required. The files under `plugins/` are already the
+finished artifact, and Wireshark executes them with its own bundled Lua 5.4
+interpreter.
+
+"Building" therefore only means:
+
+1. **Syntax-check** the scripts (optional, needs a standalone Lua 5.4):
+
+   ```bash
+   # Debian/Ubuntu: sudo apt install lua5.4
+   find plugins -name '*.lua' -print0 | xargs -0 -n1 luac -p
+   ```
+
+   No Lua installed? Use the bundled Node.js checker (the same one GitHub
+   Actions runs):
+
+   ```bash
+   npm install --no-save luaparse
+   node tools/check-lua.js
+   ```
+
+   Or simply let Wireshark parse them — this must print no `Lua Error`:
+
+   ```bash
+   tshark -G plugins
+   ```
+
+2. **Package** a zip you can attach to a GitHub release (optional):
+
+   ```powershell
+   Compress-Archive -Path plugins\* -DestinationPath voipshark-plugins.zip -Force
+   ```
+
+   ```bash
+   (cd plugins && zip -r ../voipshark-plugins.zip .)
+   ```
+
+3. **Install** it — see below. Installing is just copying the files; Wireshark
+   picks them up on the next start.
 
 ---
 
@@ -55,6 +105,20 @@ Manual install: copy the **contents** of the `plugins` folder into
 ```
 %APPDATA%\Wireshark\plugins
 ```
+
+#### Wireshark Portable
+
+A portable build keeps everything under its own folder, so point the installer
+at its personal plugin directory:
+
+```powershell
+# WiresharkPortable64 in Documents, for example
+.\install.ps1 -Destination "$HOME\Documents\WiresharkPortable64\Data\settings\Wireshark\plugins"
+```
+
+The path is always `<portable folder>\Data\settings\Wireshark\plugins`; you can
+confirm it in the portable Wireshark under **Help → About Wireshark → Folders →
+Personal Lua Plugins**.
 
 ### Linux / macOS
 
@@ -123,6 +187,16 @@ else in the plugin directory untouched.
 5. Try **VOIP → Export Wav** to dump the audio, or **VOIP → SIP Information
    Gathering → SIP Auth Export** on `SIP-RTP-Normal_Call_two_parties.pcap`.
 
+Headless check with `tshark` (works without the GUI):
+
+```bash
+tshark -r "Sample PCAPs/SIP-SRTP-Normal_Call_two_parties.pcap" \
+       -o voipshark.srtp:TRUE -Y rtp -T fields -e rtp.ssrc | head
+```
+
+The SRTP packets should be listed as `rtp` with their SSRC. Add `-2` to
+reproduce the GUI's two-pass dissection.
+
 If something fails, open **Tools → Lua Console** (or watch the dialog shown at
 startup) to see the exact Lua error.
 
@@ -139,8 +213,13 @@ startup) to see the exact Lua error.
 * **WAV export assumes raw PCM payload**, i.e. G.711. G.722, Opus, AMR and
   other codecs will produce noise. For those, export the RTP payload and
   decode it with a proper codec.
-* **GUI only.** All plugins start with `if not gui_enabled() then return end`,
-  so `tshark` does not load them.
+* **SIP packets that carry `a=crypto` are handled by the plugin itself.** While
+  *Decrypt SRTP Automatically* is enabled those INVITE/200 messages are shown
+  as `VoIPShark` and their SIP/SDP details are not dissected, and RTCP streams
+  appear as `data`. Disable the preference to get the normal SIP/SDP view back.
+* **GUI only for the menu-driven plugins.** `srtp_decrypt.lua` itself also runs
+  under `tshark` (use `-o voipshark.srtp:TRUE`); the others exit immediately
+  when `gui_enabled()` is false.
 * **Hard-coded heuristic thresholds** in `attack_detection.lua`; edit the
   `settings` table if your environment needs different values.
 * Wireshark 4.2 is still supported by the code path (Lua 5.2 + `bit32`), but it
@@ -158,6 +237,8 @@ See [CHANGES.md](CHANGES.md). Summary:
 * AES_CM_256 suites are now decrypted too (the cipher is chosen from the key
   length instead of being hard-coded to AES-128).
 * Payloads whose length is not a multiple of 16 bytes are no longer truncated.
+* The SIP-over-TLS registration uses `tls.port` (falling back to `ssl.port`),
+  which removes a deprecation warning on Wireshark 4.6.
 * `lockbox` moved into `plugins/` so the plugin directory is a single
   drop-in; `init.lua` added for module paths and the `bit32` shim.
 * Install/uninstall scripts and updated documentation.

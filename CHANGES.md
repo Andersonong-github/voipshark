@@ -77,9 +77,10 @@ them into a 16-byte key and a 14-byte salt, and `getCrypt()` always used
 inline key material) was therefore decrypted with a truncated key and produced
 garbage.
 
-The base64 decoder now consumes the whole inline value and the key/salt split
-depends on the decoded length, while `getCrypt()` picks AES-256 when the key is
-32 bytes. AES_CM_128 keeps working exactly as before.
+The base64 decoder now consumes the whole inline value (ignoring anything that
+is not a base64 character, such as the SDP line terminator) and the key/salt
+split depends on the decoded length, while `getCrypt()` picks AES-256 when the
+key is 32 bytes. AES_CM_128 keeps working exactly as before.
 
 This matters in practice: `Sample PCAPs/SIP-SRTP-Normal_Call_two_parties.pcap`
 contains both AES_CM_128 and AES_CM_256 calls.
@@ -98,6 +99,20 @@ AMR and 10 ms G.711 payloads were silently cut.
 RTP path and the key-derivation path (the latter also stopped returning two
 unused bytes for the 14-byte session salt).
 
+## 7. `ssl.port` renamed to `tls.port`
+
+**File:** `plugins/srtp_decrypt.lua`
+
+The SIP-over-TLS registration used `DissectorTable.get("ssl.port")`, which
+Wireshark 4.6 still resolves but logs as deprecated:
+
+```
+find_dissector_table(): ssl.port is now tls.port
+```
+
+The table is now looked up as `tls.port` with a fallback to `ssl.port`, so the
+warning is gone on 4.6 and older releases keep working.
+
 ## Compatibility audit performed
 
 * All 44 Lua files parse as Lua 5.3/5.4.
@@ -115,6 +130,21 @@ unused bytes for the 14-byte session salt).
 * 14 synthetic round-trips (AES_CM_128 and AES_CM_256, payload lengths 1, 15,
   33, 100, 160, 172 and 320 bytes) encrypt with `node:crypto` and decrypt
   through the plugin, matching the original plaintext exactly.
+* The complete plugin set was installed into a **Wireshark 4.6.7 portable**
+  build (`Documents\WiresharkPortable64`) and driven with `tshark`:
+  * `tshark -G plugins` lists all Lua scripts and prints no errors.
+  * With `-o voipshark.srtp:TRUE`, 4540 of the SRTP packets in
+    `SIP-SRTP-Normal_Call_two_parties.pcap` are dissected as `artp:rtp` with
+    decrypted G.711 payload (74 % µ-law silence, 200+ distinct byte values);
+    this includes the AES_CM_256 call.
+  * The same result is obtained in two-pass mode (`-2`), which is what the GUI
+    does on its second dissection pass.
+  * `SIP-RTP-Normal_Call_two_parties.pcap` and `DTMF.pcap` still dissect as
+    SIP + RTP, and no Lua error or deprecation warning is emitted on any
+    capture.
+  * RTCP streams are dissected as `data` while the preference is enabled,
+    because the plugin consumes the SDP before Wireshark can set up its own
+    RTP/RTCP conversations. This is pre-existing upstream behaviour.
 * Every `Field.new()` name used by the plugins was checked against the
   Wireshark 4.6 field reference. All exist except `data-text-lines` (fixed).
 * `Listener`, `TextWindow`, `ProgDlg`, `new_dialog`, `register_menu`,
@@ -124,6 +154,15 @@ unused bytes for the 14-byte session salt).
   dissector, so the SIP-over-TLS registration keeps working.
 * `DissectorTable:add()` still accepts numeric strings/ranges, so the SDP
   media-port registration is unchanged.
+
+## 8. Documentation and CI
+
+* `README.md` (English) and `README.zh-CN.md` (Chinese) now cross-link each
+  other and both document the "no compilation" build model, the portable-build
+  plugin path, and the headless `tshark` check.
+* `tools/check-lua.js` parses all 44 Lua files with luaparse. The
+  `Lua syntax check` GitHub Actions workflow runs it on every push and pull
+  request, so syntax regressions are caught without a local Lua install.
 
 ## Runtime verification checklist
 

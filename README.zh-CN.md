@@ -1,5 +1,9 @@
 # VoIPShark（Wireshark 4.x 兼容版）
 
+[English](README.md) · **简体中文**
+
+[![Lua 语法检查](https://github.com/Andersonong-github/voipshark/actions/workflows/lua-check.yml/badge.svg)](https://github.com/Andersonong-github/voipshark/actions/workflows/lua-check.yml)
+
 VoIPShark 是一组 Wireshark Lua 插件，用于分析 VoIP 流量：自动解密 SDES-SRTP、
 导出通话音频、收集 SIP 情报、检测常见 SIP 攻击。
 
@@ -7,16 +11,16 @@ VoIPShark 是一组 Wireshark Lua 插件，用于分析 VoIP 流量：自动解�
 的维护分支。上游自 2020 年 2 月起停止更新，在 Wireshark 4.4+ 上已经无法加载
 （Lua 5.4 移除了 `bit32`）。所有改动见 [CHANGES.md](CHANGES.md)。
 
-> **兼容性：** Wireshark 4.4–4.6（Lua 5.4），Windows / macOS / Linux。
-> 理论上也兼容 4.2（Lua 5.2），但 4.2 已停止维护。
-> 全部 44 个 Lua 文件已在真实 Lua 5.4 解释器 + Wireshark API 桩环境下验证可加载，
-> 详见 [CHANGES.md](CHANGES.md)。
+> **兼容性：** 已在 Wireshark 4.6.7（Windows 便携版）实测：全部插件加载无报错，
+> 仓库自带的 SRTP 抓包可正常解密。理论上也兼容 4.4（Lua 5.4）与 4.2（Lua 5.2，
+> 已停止维护）。详见 [CHANGES.md](CHANGES.md)。
 
 ---
 
 ## 功能
 
-安装后全部位于 **Tools → VOIP** 菜单（仅 GUI；`tshark` 下插件会自动退出）。
+安装后菜单位于 **Tools → VOIP**（GUI）。菜单类插件在 `tshark` 下会自动退出；
+`srtp_decrypt.lua` 也可无界面运行（见下文）。
 
 | 插件 | 菜单 | 作用 |
 | --- | --- | --- |
@@ -29,6 +33,47 @@ VoIPShark 是一组 Wireshark Lua 插件，用于分析 VoIP 流量：自动解�
 | `attack_detection.lua` | VOIP → VOIP Attack Detection → … | 暴力破解、消息洪泛、INVITE 洪泛、SIP MITM、未认证用户。阈值写死在脚本里（默认暴力破解 5 次、INVITE 洪泛 3 次）。 |
 
 结果以文本窗口展示，带 **Search** / **Reset** 按钮。
+
+---
+
+## 构建（"编译"）
+
+VoIPShark 是**纯 Lua 项目**：没有编译步骤，没有 C 扩展，也不需要单独安装 Lua。
+`plugins/` 下的文件就是最终成品，Wireshark 用自带的 Lua 5.4 解释器直接加载。
+
+所谓"编译"只包括：
+
+1. **语法检查**（可选，需要独立的 Lua 5.4）：
+
+   ```bash
+   # Debian/Ubuntu: sudo apt install lua5.4
+   find plugins -name '*.lua' -print0 | xargs -0 -n1 luac -p
+   ```
+
+   没装 Lua？用仓库自带的 Node.js 检查脚本（GitHub Actions 用的就是它）：
+
+   ```bash
+   npm install --no-save luaparse
+   node tools/check-lua.js
+   ```
+
+   或者直接让 Wireshark 解析，输出中不应出现 `Lua Error`：
+
+   ```bash
+   tshark -G plugins
+   ```
+
+2. **打包**成 zip，方便上传到 GitHub Release（可选）：
+
+   ```powershell
+   Compress-Archive -Path plugins\* -DestinationPath voipshark-plugins.zip -Force
+   ```
+
+   ```bash
+   (cd plugins && zip -r ../voipshark-plugins.zip .)
+   ```
+
+3. **安装** —— 见下一节。安装本身就是复制文件，重启 Wireshark 即生效。
 
 ---
 
@@ -48,6 +93,18 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1
 ```
 %APPDATA%\Wireshark\plugins
 ```
+
+#### Wireshark 便携版（Portable）
+
+便携版把配置放在自己的目录下，安装时把目标指向它的个人插件目录：
+
+```powershell
+# 以 Documents 下的 WiresharkPortable64 为例
+.\install.ps1 -Destination "$HOME\Documents\WiresharkPortable64\Data\settings\Wireshark\plugins"
+```
+
+路径固定为 `<便携版目录>\Data\settings\Wireshark\plugins`；可在便携版 Wireshark 的
+**Help → About Wireshark → Folders → Personal Lua Plugins** 中确认。
 
 ### Linux / macOS
 
@@ -115,6 +172,15 @@ powershell -ExecutionPolicy Bypass -File .\uninstall.ps1
 5. 试一下 **VOIP → Export Wav**，或对
    `SIP-RTP-Normal_Call_two_parties.pcap` 使用 **SIP Auth Export**。
 
+无界面验证（`tshark`，不需要打开 GUI）：
+
+```bash
+tshark -r "Sample PCAPs/SIP-SRTP-Normal_Call_two_parties.pcap" \
+       -o voipshark.srtp:TRUE -Y rtp -T fields -e rtp.ssrc | head
+```
+
+SRTP 包应作为 `rtp` 列出并带 SSRC。加 `-2` 可复现 GUI 的两遍解析。
+
 如果失败，打开 **Tools → Lua Console**（或启动时弹出的错误窗口）查看具体
 Lua 报错。
 
@@ -128,7 +194,11 @@ Lua 报错。
 * **SIP over TLS 只注册了 5061 端口**，其他端口可在
   `plugins/srtp_decrypt.lua` 末尾自行添加。
 * **WAV 导出按原始 PCM 处理**，适用于 G.711；G.722、Opus、AMR 等会导出噪音。
-* **仅 GUI**：所有插件都以 `if not gui_enabled() then return end` 开头。
+* **带 `a=crypto` 的 SIP 包会被插件接管**：开启自动解密后，这些 INVITE/200 会显示
+  为 `VoIPShark`，不再显示 SIP/SDP 细节；RTCP 流会显示为 `data`。关闭该选项即可恢复
+  正常的 SIP/SDP 视图。
+* **菜单类插件仅 GUI**；`srtp_decrypt.lua` 本身在 `tshark` 下也能用
+  （`-o voipshark.srtp:TRUE`），其余插件在 `gui_enabled()` 为 false 时直接退出。
 * 攻击检测阈值写死在 `attack_detection.lua` 的 `settings` 表里。
 * 4.2 仍可用（Lua 5.2 + `bit32`），但已无安全更新，建议用 4.4/4.6。
 
@@ -142,6 +212,7 @@ Lua 报错。
 * `data-text-lines` → `data.text`（旧字段已不存在），带向后兼容回退。
 * 新增 AES_CM_256 支持（根据密钥长度选择 AES-128/AES-256，原来写死 AES-128）。
 * 修复长度不是 16 整数倍的 RTP 载荷被截断的问题。
+* SIP over TLS 改用 `tls.port`（回退 `ssl.port`），消除 4.6 的弃用警告。
 * `lockbox` 移入 `plugins/`，插件目录可直接整体复制；新增 `init.lua`。
 * 新增安装/卸载脚本和文档。
 

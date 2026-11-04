@@ -132,6 +132,9 @@ end
 --   AES_CM_128: 16-byte key + 14-byte salt (30 bytes, 40 base64 chars)
 --   AES_CM_256: 32-byte key + 14-byte salt (46 bytes, 64 base64 chars)
 function decode_sdes(input)
+	-- Keep only base64 characters: the SDP line terminator (and anything
+	-- after it) is not part of the key.
+	input = input:gsub("[^%w%+/=]", "")
 	-- Padding characters carry no key material; pad to a multiple of four
 	-- so the four-character block decoder always has a full group.
 	input = input:gsub("=", "")
@@ -553,7 +556,6 @@ function mysdp.dissector(tvb,pktinfo,root)
 						-- Genrating the TV Buffer from the byte array
 						-- no nned for conversion since its not required anymore
 						tvb=ByteArray.tvb(b, "Decrypted SDP")
-						print(new_tvb)
 						Dissector.get("sip"):call(tvb,pktinfo,root)	
 				--Dissector.get("sip"):call(tvb,pktinfo,root)
 			end
@@ -569,8 +571,11 @@ end
 -- TODO: only 5060 is added
 DissectorTable.get("udp.port"):add("5060",mysdp)
 
--- Registering for SIP over TLS 
-DissectorTable.get("ssl.port"):add("5061",mysdp)
+-- Registering for SIP over TLS. The table was renamed from "ssl.port" to
+-- "tls.port"; use the new name when available so Wireshark 4.6+ does not
+-- print a deprecation warning.
+local tls_port_table = DissectorTable.get("tls.port") or DissectorTable.get("ssl.port")
+tls_port_table:add("5061",mysdp)
 
 
 

@@ -1,0 +1,6 @@
+# Node.js helper for tools/check-lua.js
+node_modules/
+package-lock.json
+
+# Build artifacts
+*.zip
