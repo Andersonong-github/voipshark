@@ -20,7 +20,7 @@ VoIPShark 是一组 Wireshark Lua 插件，用于分析 VoIP 流量：自动解�
 
 | 插件 | 菜单 | 作用 |
 | --- | --- | --- |
-| `srtp_decrypt.lua` | 自动生效 | 挂钩 UDP/5060 与 TLS/5061，从 SDP 的 `a=crypto:... inline:<base64>` 读取 SDES 密钥，按 RFC 3711 的 AES-CM KDF 派生 SRTP 会话密钥并就地解密 RTP。启用方式：**Edit → Preferences → Protocols → VoIPShark → Decrypt SRTP Automatically**。 |
+| `srtp_decrypt.lua` | 自动生效 | 挂钩 UDP/5060 与 TLS/5061，从 SDP 的 `a=crypto:... inline:<base64>` 读取 SDES 密钥，按 RFC 3711 的 AES-CM KDF 派生 SRTP 会话密钥并就地解密 RTP。支持 `AES_CM_128_HMAC_SHA1_80` 和 `AES_CM_256_HMAC_SHA1_80`。启用方式：**Edit → Preferences → Protocols → VoIPShark → Decrypt SRTP Automatically**。 |
 | `exportWav.lua` | VOIP → Export Wav | 按 `源IP-目的IP-SSRC` 聚合 RTP，每条流导出一个 `.wav`。适合 G.711（PCMU/PCMA）。 |
 | `info_gather_sip.lua` | VOIP → SIP Information Gathering → Extensions / Servers and Proxy / SIP Auth Export | 枚举分机号、SIP 服务器/代理；导出 401/407 的认证字段（username、realm、nonce、URI、response 等），可交给 `sipcrack` 跑字典。 |
 | `info_gather_rtp.lua` | … → RTP Packet Transfers | 按通话汇总 RTP 流和包传输。 |
@@ -123,7 +123,8 @@ Lua 报错。
 ## 已知限制
 
 * **仅支持 SDES**：密钥必须出现在 SDP 的 `a=crypto:… inline:…` 中。
-  不支持 DTLS-SRTP 和 ZRTP。
+  不支持 DTLS-SRTP 和 ZRTP。SDES 套件中已实现 AES_CM_128 与 AES_CM_256，
+  未实现 AES_CM_192 和空加密套件。
 * **SIP over TLS 只注册了 5061 端口**，其他端口可在
   `plugins/srtp_decrypt.lua` 末尾自行添加。
 * **WAV 导出按原始 PCM 处理**，适用于 G.711；G.722、Opus、AMR 等会导出噪音。
@@ -139,6 +140,8 @@ Lua 报错。
   修复 `attempt to index global 'bit32' (a nil value)`。
 * 实现 `file_exists()`（上游调用了未定义的全局函数）。
 * `data-text-lines` → `data.text`（旧字段已不存在），带向后兼容回退。
+* 新增 AES_CM_256 支持（根据密钥长度选择 AES-128/AES-256，原来写死 AES-128）。
+* 修复长度不是 16 整数倍的 RTP 载荷被截断的问题。
 * `lockbox` 移入 `plugins/`，插件目录可直接整体复制；新增 `init.lua`。
 * 新增安装/卸载脚本和文档。
 

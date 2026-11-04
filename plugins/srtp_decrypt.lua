@@ -19,6 +19,7 @@ local CTRMode = require("lockbox.cipher.mode.ctr");
 local PKCS7Padding = require("lockbox.padding.pkcs7");
 local ZeroPadding = require("lockbox.padding.zero");
 local AES128Cipher = require("lockbox.cipher.aes128");
+local AES256Cipher = require("lockbox.cipher.aes256");
 
 
 -- And or XOR substitution
@@ -44,9 +45,14 @@ local rtp_rollcounter=0
 
 -- function to perform AES CM encryption decryption, input: key, IV and data to encrypt or decrypt, output: plain/cipher text
 function getCrypt(key,iv,data)
+	-- AES_CM_128 uses a 16-byte master key, AES_CM_256 a 32-byte one.
+	-- The key arrives as a hex string, so the lengths are 32 and 64 chars.
+	local cipher = AES128Cipher
+	if #key > 32 then cipher = AES256Cipher end
+
 	local decipher = CTRMode.Decipher()
 			.setKey(Array.fromHex(key))
-			.setBlockCipher(AES128Cipher)
+			.setBlockCipher(cipher)
 			.setPadding(ZeroPadding);
 
 	local plainOutput = decipher
@@ -121,14 +127,26 @@ function decode_block(input,output)
   return output
 end
 
--- Function to decode the encoding, the 40 byte encoded text is broken down to master key and master salt
+-- Function to decode the encoding. The inline key is base64 of
+-- master key || master salt:
+--   AES_CM_128: 16-byte key + 14-byte salt (30 bytes, 40 base64 chars)
+--   AES_CM_256: 32-byte key + 14-byte salt (46 bytes, 64 base64 chars)
 function decode_sdes(input)
-	local output="";
-	for i =0,9,1
-		do
+	-- Padding characters carry no key material; pad to a multiple of four
+	-- so the four-character block decoder always has a full group.
+	input = input:gsub("=", "")
+	input = input .. string.rep("A", (4 - #input % 4) % 4)
+
+	local output=""
+	for i = 0, #input/4 - 1, 1 do
 		output=decode_block(input:sub(4*i+1,4*i+4),output);
 	end
-	return output:sub(1,32), output:sub(33)
+
+	-- 92 hex chars == 32-byte key + 14-byte salt
+	if #output >= 92 then
+		return output:sub(1,64), output:sub(65,92)
+	end
+	return output:sub(1,32), output:sub(33,60)
 end
 
 -- Function to obtain the rtp sequence number from the buffer, utlizes first 5th to 8th bytes of the buffer 
@@ -239,9 +257,16 @@ function do_ctr_crypt(key,iv,data,len,type)
 			
 			if(type=="rtp")
 				then
-				enc=enc..getCrypt(key,inc_iv(iv,quot),dataProc):sub(1,2*(ctrlen-rem))
+				-- CTR is a stream cipher: only the first `rem` bytes of the
+				-- keystream block are needed. The original code kept
+				-- 2*(ctrlen-rem) hex characters by mistake, which truncated
+				-- the tail of every payload whose length was not a multiple
+				-- of 16 bytes.
+				enc=enc..getCrypt(key,inc_iv(iv,quot),dataProc):sub(1,2*rem)
 			else
-				enc=enc..getCrypt(key,inc_iv(iv,quot),dataProc)
+				-- Key derivation asks for 16 bytes (key) or 14 bytes (salt);
+				-- return exactly the requested amount.
+				enc=enc..getCrypt(key,inc_iv(iv,quot),dataProc):sub(1,2*len)
 			end
 	end
 	return enc

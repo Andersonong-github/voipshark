@@ -25,7 +25,7 @@ plugins exit immediately under `tshark`).
 
 | Plugin | Menu | What it does |
 | --- | --- | --- |
-| `srtp_decrypt.lua` | automatic | Hooks SIP on UDP/5060 and TLS/5061, reads the SDES key from `a=crypto:... inline:<base64>` in SDP, derives the SRTP session key/salt (RFC 3711 AES-CM KDF) and decrypts RTP payloads in place. Encrypted calls then show up as plain RTP with the original packet structure and timestamps. Enable it in **Edit → Preferences → Protocols → VoIPShark → Decrypt SRTP Automatically**. |
+| `srtp_decrypt.lua` | automatic | Hooks SIP on UDP/5060 and TLS/5061, reads the SDES key from `a=crypto:... inline:<base64>` in SDP, derives the SRTP session key/salt (RFC 3711 AES-CM KDF) and decrypts RTP payloads in place. Supports `AES_CM_128_HMAC_SHA1_80` and `AES_CM_256_HMAC_SHA1_80`. Encrypted calls then show up as plain RTP with the original packet structure and timestamps. Enable it in **Edit → Preferences → Protocols → VoIPShark → Decrypt SRTP Automatically**. |
 | `exportWav.lua` | VOIP → Export Wav | Groups RTP by `src-dst-ssrc` and writes one `.wav` per stream. Suitable for G.711 (PCMU/PCMA) audio. |
 | `info_gather_sip.lua` | VOIP → SIP Information Gathering → Extensions / Servers and Proxy / SIP Auth Export | Lists extensions, SIP servers/proxies, and exports digest-auth material (username, realm, nonce, URI, response, …) that can be fed to tools such as `sipcrack`. |
 | `info_gather_rtp.lua` | VOIP → SIP Information Gathering → RTP Packet Transfers | Summarises RTP streams and packet transfers per call. |
@@ -132,7 +132,8 @@ startup) to see the exact Lua error.
 
 * **SDES only.** SRTP decryption relies on the master key being present in SDP
   (`a=crypto:… inline:…`). DTLS-SRTP (key exchanged in the DTLS handshake) is
-  not supported. ZRTP is not supported.
+  not supported. ZRTP is not supported. Of the SDES suites, AES_CM_128 and
+  AES_CM_256 are implemented; AES_CM_192 and the null cipher are not.
 * **SIP over TLS is registered on port 5061 only.** Other ports can be added
   at the bottom of `plugins/srtp_decrypt.lua`.
 * **WAV export assumes raw PCM payload**, i.e. G.711. G.722, Opus, AMR and
@@ -154,6 +155,9 @@ See [CHANGES.md](CHANGES.md). Summary:
 * `file_exists()` implemented (upstream called an undefined global).
 * `data-text-lines` replaced by `data.text` with a fallback (the field no
   longer exists in current Wireshark).
+* AES_CM_256 suites are now decrypted too (the cipher is chosen from the key
+  length instead of being hard-coded to AES-128).
+* Payloads whose length is not a multiple of 16 bytes are no longer truncated.
 * `lockbox` moved into `plugins/` so the plugin directory is a single
   drop-in; `init.lua` added for module paths and the `bit32` shim.
 * Install/uninstall scripts and updated documentation.

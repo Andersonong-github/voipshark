@@ -67,6 +67,37 @@ available.
 * `install.ps1`, `install.sh`, `uninstall.ps1`, `uninstall.sh` added.
 * README rewritten; Chinese translation added.
 
+## 5. AES_CM_256 suites were not supported
+
+**File:** `plugins/srtp_decrypt.lua`
+
+`decode_sdes()` always decoded exactly 40 base64 characters (30 bytes) and split
+them into a 16-byte key and a 14-byte salt, and `getCrypt()` always used
+`AES128Cipher`. An `AES_CM_256_HMAC_SHA1_80` stream (32-byte key, 46 bytes of
+inline key material) was therefore decrypted with a truncated key and produced
+garbage.
+
+The base64 decoder now consumes the whole inline value and the key/salt split
+depends on the decoded length, while `getCrypt()` picks AES-256 when the key is
+32 bytes. AES_CM_128 keeps working exactly as before.
+
+This matters in practice: `Sample PCAPs/SIP-SRTP-Normal_Call_two_parties.pcap`
+contains both AES_CM_128 and AES_CM_256 calls.
+
+## 6. Payloads not a multiple of 16 bytes were truncated
+
+**File:** `plugins/srtp_decrypt.lua`, `do_ctr_crypt()`
+
+For the last, partial AES block the code kept `2*(16-rem)` hex characters
+instead of `2*rem`, so every decrypted payload was short by `2*(16-rem)` bytes
+unless its length happened to be a multiple of 16. G.711 with 20 ms packets
+(160 bytes) was unaffected, which is why the bug went unnoticed; G.722, Opus,
+AMR and 10 ms G.711 payloads were silently cut.
+
+`do_ctr_crypt()` now returns exactly the requested number of bytes for both the
+RTP path and the key-derivation path (the latter also stopped returning two
+unused bytes for the 14-byte session salt).
+
 ## Compatibility audit performed
 
 * All 44 Lua files parse as Lua 5.3/5.4.
@@ -75,6 +106,15 @@ available.
   `TextWindow`, `Proto`, `Pref`, `DissectorTable`, `bit`, …): every lockbox
   module resolves through `require()` and every plugin reaches its
   registration code without error.
+* The SRTP decryptor was exercised end to end against
+  `Sample PCAPs/SIP-SRTP-Normal_Call_two_parties.pcap`: 40 RTP payloads from
+  four AES_CM_128 streams decrypt byte-for-byte identically to an independent
+  RFC 3711 AES-CM implementation written on top of `node:crypto`. The
+  decrypted payload is constant `0xFF`, i.e. valid µ-law silence (the sample
+  capture is muted), which also confirms the key was applied correctly.
+* 14 synthetic round-trips (AES_CM_128 and AES_CM_256, payload lengths 1, 15,
+  33, 100, 160, 172 and 320 bytes) encrypt with `node:crypto` and decrypt
+  through the plugin, matching the original plaintext exactly.
 * Every `Field.new()` name used by the plugins was checked against the
   Wireshark 4.6 field reference. All exist except `data-text-lines` (fixed).
 * `Listener`, `TextWindow`, `ProgDlg`, `new_dialog`, `register_menu`,
