@@ -79,6 +79,12 @@ VoIPShark 是**纯 Lua 项目**：没有编译步骤，没有 C 扩展，也不�
 
 ## 安装
 
+### 从 Release 快速安装
+
+从 [最新 Release](https://github.com/Andersonong-github/voipshark/releases/latest)
+下载 `voipshark-plugins.zip`，把其中 `plugins/` 里的**内容**解压到下面的个人
+Lua 插件目录即可。无需任何编译。
+
 ### Windows（PowerShell）
 
 ```powershell

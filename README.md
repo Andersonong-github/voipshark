@@ -89,6 +89,13 @@ interpreter.
 
 ## Installation
 
+### Quick install from a release
+
+Download `voipshark-plugins.zip` from the
+[latest release](https://github.com/Andersonong-github/voipshark/releases/latest)
+and unpack the **contents** of its `plugins/` folder into the personal Lua
+plugin directory described below. Nothing needs to be compiled.
+
 ### Windows (PowerShell)
 
 ```powershell
