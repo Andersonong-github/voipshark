@@ -10,6 +10,14 @@ do
   -- If GUI is not enabled exit. Keeps plugin from running for tshark
   if not gui_enabled() then return end
 
+  -- The original code called an undefined global file_exists(). Define a
+  -- local replacement (Wireshark's Lua API does not provide one).
+  local function file_exists(p)
+    local f = io.open(p, "r")
+    if f then f:close() return true end
+    return false
+  end
+
   -- Object to get 
   local tap=Listener.new("frame","rtp")
 

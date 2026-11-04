@@ -30,7 +30,16 @@ do
   -- Object to get from_user
   local from_user=Field.new("sip.from.user")
 
-  local data_text_line=Field.new("data-text-lines")
+  -- Older Wireshark versions exposed the SIP body through "data-text-lines".
+  -- It no longer exists; the Data dissector now provides "data.text".
+  local data_text_line
+  do
+    local ok, f = pcall(Field.new, "data-text-lines")
+    if not ok then
+      ok, f = pcall(Field.new, "data.text")
+    end
+    if ok then data_text_line = f end
+  end
 
   -- Object to get call-ID
   local call_id=Field.new("sip.Call-ID")
@@ -69,7 +78,7 @@ do
      local callId=getString(call_id)
      
      
-    if(getString(method)=="MESSAGE" and data_text_line()~=nil)
+    if(getString(method)=="MESSAGE" and data_text_line~=nil and data_text_line()~=nil)
     then
         local message=data_text_line().offset
 

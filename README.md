@@ -1,136 +1,178 @@
-<img src="https://user-images.githubusercontent.com/25884689/58698021-04963d00-83cd-11e9-8962-54a3b36a12b2.png" width="50%" >
+# VoIPShark (Wireshark 4.x compatible fork)
 
-## VoIPShark: Open Source VoIP Analysis Platform
+VoIPShark is a set of Wireshark Lua plugins for analysing VoIP traffic: it can
+decrypt SDES-SRTP automatically, export call audio, harvest SIP intelligence
+and detect common SIP attacks.
 
-VoIPshark is an open source platform for VoIP analysis. It is created as a collection of Wireshark plugins. After installation, it will be available within Wireshark. This platform was created while working on "VoIP Traffic Analysis" course. Those interested can check the course here: https://www.pentesteracademy.com/course?id=43
+This repository is a maintained fork of
+[pentesteracademy/voipshark](https://github.com/pentesteracademy/voipshark).
+The upstream project has not been touched since February 2020 and no longer
+loads in current Wireshark releases, because Wireshark 4.4 moved to Lua 5.4
+and removed the old `bit32` library. All fixes are listed in
+[CHANGES.md](CHANGES.md).
 
-VoIPShark will enable the user to do the following:
+> **Targets:** Wireshark 4.4 – 4.6 (Lua 5.4), Windows / macOS / Linux.
+> Also expected to work on Wireshark 4.2 (Lua 5.2), but 4.2 is end-of-life.
+> All 44 Lua files are verified to load under a real Lua 5.4 interpreter with
+> Wireshark API stubs; see [CHANGES.md](CHANGES.md) for the audit.
 
-1. Perform macro analysis on VoIP traffic
-2. Decrypt live or stored VoIP traffic while preserving packet structure and time information
-3. Export VoIP audio streams to popular media formats
-4. Detect the following threats/attacks
+---
 
-   * Message flood
-   * Invite flood
-   * SIP MiTM attack
-   * Teardown
-   * Enumeration
-   * Attack tool detection
+## Features
 
-### Demo Video: https://www.youtube.com/watch?v=oSLyqt8A8lI
+Everything is available below **Tools → VOIP** (Wireshark GUI only; the
+plugins exit immediately under `tshark`).
 
+| Plugin | Menu | What it does |
+| --- | --- | --- |
+| `srtp_decrypt.lua` | automatic | Hooks SIP on UDP/5060 and TLS/5061, reads the SDES key from `a=crypto:... inline:<base64>` in SDP, derives the SRTP session key/salt (RFC 3711 AES-CM KDF) and decrypts RTP payloads in place. Encrypted calls then show up as plain RTP with the original packet structure and timestamps. Enable it in **Edit → Preferences → Protocols → VoIPShark → Decrypt SRTP Automatically**. |
+| `exportWav.lua` | VOIP → Export Wav | Groups RTP by `src-dst-ssrc` and writes one `.wav` per stream. Suitable for G.711 (PCMU/PCMA) audio. |
+| `info_gather_sip.lua` | VOIP → SIP Information Gathering → Extensions / Servers and Proxy / SIP Auth Export | Lists extensions, SIP servers/proxies, and exports digest-auth material (username, realm, nonce, URI, response, …) that can be fed to tools such as `sipcrack`. |
+| `info_gather_rtp.lua` | VOIP → SIP Information Gathering → RTP Packet Transfers | Summarises RTP streams and packet transfers per call. |
+| `info_gather_dtmf.lua` | VOIP → SIP Information Gathering → DTMF Sequences | Reconstructs dialled DTMF digits from `telephone-event` RTP. |
+| `info_gather_unique_message.lua` | VOIP → SIP Information Gathering → Unique Messages | De-duplicates SIP `MESSAGE` (SMS) bodies and shows sender/receiver/text. |
+| `attack_detection.lua` | VOIP → VOIP Attack Detection → … | Brute force, message flooding, INVITE flooding, SIP MITM attempts and unauthenticated users. Thresholds are hard-coded in the script (`brute_force_request_threshold = 5`, `invite_flood_threshold = 3`, …). |
+
+Results are shown in text windows with **Search** and **Reset** buttons.
+
+---
 
 ## Installation
 
-### Step 1: Install library
+### Windows (PowerShell)
 
-#### For Linux and MacOS:
+```powershell
+# from the repository root
+powershell -ExecutionPolicy Bypass -File .\install.ps1
+```
 
-1. Create directory "/usr/local/lib/lua/5.2/" if it does not exist
+The script copies everything under `plugins\` (including the `lockbox`
+library and `init.lua`) into `%APPDATA%\Wireshark\plugins`, making a backup of
+any file it overwrites. Restart Wireshark afterwards.
 
-       mkdir -p /usr/local/lib/lua/5.2/
+Manual install: copy the **contents** of the `plugins` folder into
 
-2. Download VoIPShark and copy lockbox folder to "/usr/local/lib/lua/5.2/" directory
+```
+%APPDATA%\Wireshark\plugins
+```
 
-       git clone https://github.com/pentesteracademy/voipshark.git
-       mv voipshark/lockbox /usr/local/lib/lua/5.2/
-   
-#### For Windows:
+### Linux / macOS
 
-Download VoIPShark and copy lockbox folder to wireshark program directory.
+```bash
+./install.sh
+```
 
-To find out the location of wireshark program directory, check `Help > About Wireshark > Folders` (highlighted in green)
-<p align="center">
-<img src="https://user-images.githubusercontent.com/25884689/58771844-ee64c880-85e8-11e9-95be-2af3e7d60504.png" width="60%" >
-</p>
+The default destination is `~/.local/lib/wireshark/plugins`. Override it with
+`WIRESHARK_PLUGIN_DIR=/path/to/plugins ./install.sh` if your Wireshark uses a
+different personal plugin directory.
 
+Manual install: copy the **contents** of `plugins/` (not the folder itself)
+into your personal Lua plugin directory.
 
+### Finding the right directory
 
-### Step 2: Installing VoIPShark
+In Wireshark: **Help → About Wireshark → Folders → Personal Lua Plugins**.
+On the command line: `tshark -G folders | grep -i "Personal Lua"`.
 
-1. Copy the "plugins" directory to Wireshark personal plugins directory.
-2. Start wireshark. :)
+The final layout must look like this:
 
-One can get the location of wireshark plugins directory by checking `Help > About Wireshark > Folders` (highlighted in yellow)
+```
+<personal-lua-plugins>/
+├── init.lua
+├── srtp_decrypt.lua
+├── attack_detection.lua
+├── exportWav.lua
+├── info_gather_sip.lua
+├── info_gather_rtp.lua
+├── info_gather_dtmf.lua
+├── info_gather_unique_message.lua
+├── util.lua
+└── lockbox/
+    ├── init.lua
+    ├── cipher/
+    ├── digest/
+    └── ...
+```
 
-![](https://user-images.githubusercontent.com/743886/43845711-72426d36-9ae1-11e8-9945-0bbe8e078e2a.png)
+`init.lua` is loaded before the other scripts and only provides compatibility
+shims (it re-creates `bit32` on top of Wireshark's bundled `bit` library and
+adds the plugin directory to `package.path`).
 
+### Uninstall
 
-## Tool featured at
+```powershell
+powershell -ExecutionPolicy Bypass -File .\uninstall.ps1
+```
 
-- DEF CON China 1.0 Main stage <https://www.defcon.org/html/dc-china-1/dc-cn-1-speakers.html>
-- Blackhat Asia 2019 Arsenal <https://www.blackhat.com/asia-19/arsenal/schedule/index.html#voip-wireshark-attack-defense-toolkit-14349>
+```bash
+./uninstall.sh
+```
 
+Both only remove the files that belong to this project and leave everything
+else in the plugin directory untouched.
 
-## Sister Project
+---
 
-PA-Toolkit (https://github.com/pentesteracademy/patoolkit)
+## Verifying the install
 
+1. Start Wireshark and check that **Tools → VOIP** exists.
+2. Open `Sample PCAPs/SIP-SRTP-Normal_Call_two_parties.pcap`.
+3. Enable **Edit → Preferences → Protocols → VoIPShark → Decrypt SRTP
+   Automatically**, then reload the capture (Ctrl+Shift+R).
+4. The SRTP packets should now be dissected as RTP with readable payload.
+5. Try **VOIP → Export Wav** to dump the audio, or **VOIP → SIP Information
+   Gathering → SIP Auth Export** on `SIP-RTP-Normal_Call_two_parties.pcap`.
 
-## Author
+If something fails, open **Tools → Lua Console** (or watch the dialog shown at
+startup) to see the exact Lua error.
 
-- Nishant Sharma, R & D Manager, Pentester Academy <nishant@binarysecuritysolutions.com>
-- Ashish Bhangale, Sr. Security Researcher, Pentester Academy <ashish@binarysecuritysolutions.com> 
-- Jeswin Mathai, Security Researcher, Pentester Academy <jeswin@binarysecuritysolutions.com> 
+---
 
-Under the guidance of Mr. Vivek Ramachandran, CEO, Pentester Academy
+## Compatibility notes / limitations
 
+* **SDES only.** SRTP decryption relies on the master key being present in SDP
+  (`a=crypto:… inline:…`). DTLS-SRTP (key exchanged in the DTLS handshake) is
+  not supported. ZRTP is not supported.
+* **SIP over TLS is registered on port 5061 only.** Other ports can be added
+  at the bottom of `plugins/srtp_decrypt.lua`.
+* **WAV export assumes raw PCM payload**, i.e. G.711. G.722, Opus, AMR and
+  other codecs will produce noise. For those, export the RTP payload and
+  decode it with a proper codec.
+* **GUI only.** All plugins start with `if not gui_enabled() then return end`,
+  so `tshark` does not load them.
+* **Hard-coded heuristic thresholds** in `attack_detection.lua`; edit the
+  `settings` table if your environment needs different values.
+* Wireshark 4.2 is still supported by the code path (Lua 5.2 + `bit32`), but it
+  no longer receives security updates — prefer 4.4/4.6.
 
-## Screenshots
+## Changes from upstream
 
-Decrypting SRTP: SRTP Packets
+See [CHANGES.md](CHANGES.md). Summary:
 
-![Wireshark_2019-04-30_13-19-16](https://user-images.githubusercontent.com/25884689/58720935-1b0cba80-8406-11e9-9473-2142f93377de.png)
-Decrypting SRTP: Enabling Auto Decryption
+* `bit32` replaced by the bundled `bit` library (with unsigned 32-bit
+  normalisation) — fixes `attempt to index global 'bit32' (a nil value)`.
+* `file_exists()` implemented (upstream called an undefined global).
+* `data-text-lines` replaced by `data.text` with a fallback (the field no
+  longer exists in current Wireshark).
+* `lockbox` moved into `plugins/` so the plugin directory is a single
+  drop-in; `init.lua` added for module paths and the `bit32` shim.
+* Install/uninstall scripts and updated documentation.
 
+## Credits
 
-<img width="400" alt="Wireshark_2019-04-30_13-19-55" src="https://user-images.githubusercontent.com/25884689/58720923-15af7000-8406-11e9-9af5-835e1a52303e.png">
+Original tool by Nishant Sharma, Ashish Bhangale and Jeswin Mathai
+(Pentester Academy), under the guidance of Vivek Ramachandran.
+Presented at DEF CON China 1.0 and Black Hat Asia 2019 Arsenal.
 
-
-Decrypting SRTP: Decrypted SRTP (RTP)
-
-![Wireshark_2019-04-30_13-20-14](https://user-images.githubusercontent.com/25884689/58721022-5b6c3880-8406-11e9-94fa-7a03d6558f0f.png)
-
-
-
-Exporting Call Audio: Exported Streams 
-
-<img width="621" alt="2019-04-30_12-59-42" src="https://user-images.githubusercontent.com/25884689/58720944-252eb900-8406-11e9-80df-1e19fd1ebdd0.png">
-
-
-
-
-SIP Information Gathering : SIP Auth Export
-
-<img width="621" alt="Wireshark_2019-04-30_13-09-11" src="https://user-images.githubusercontent.com/25884689/58720623-4e027e80-8405-11e9-85a7-6a39c030af4e.png">
-
-SIP Information Gathering : DTMF
-
-<img width="634" alt="Wireshark_2019-04-30_13-13-18" src="https://user-images.githubusercontent.com/25884689/58720647-55c22300-8405-11e9-9f6f-95ca7c206440.png">
-
-
- VoIP Attack Detection: Bruteforce
-
-<img width="766" alt="Wireshark_2019-04-30_13-08-07" src="https://user-images.githubusercontent.com/25884689/58720310-63c37400-8404-11e9-8418-509f7eb0ff84.png">
-
-
- VoIP Attack Detection: Unauthenticated Users
-
-<img width="381" alt="Wireshark_2019-04-30_13-17-16" src="https://user-images.githubusercontent.com/25884689/58720237-34ad0280-8404-11e9-8605-1b1bf41fa58d.png">
-
+The AES/SHA implementation is [lockbox](https://github.com/gilbertchen/lockbox)
+by Gilbert Chen.
 
 ## License
 
+GNU General Public License v2.0 — see [LICENSE](LICENSE).
 
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU General Public License v2 as published by
-the Free Software Foundation.
+## Disclaimer
 
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
+Use only on networks and captures you own or are explicitly authorised to
+test. Decrypting third-party voice traffic may be illegal in your
+jurisdiction.

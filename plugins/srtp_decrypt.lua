@@ -22,11 +22,19 @@ local AES128Cipher = require("lockbox.cipher.aes128");
 
 
 -- And or XOR substitution
-local AND=bit32.band
-local OR=bit32.bor
-local XOR=bit32.bxor
-local LSHIFT=bit32.lshift
-local RSHIFT=bit32.rshift
+-- Wireshark 4.4+ ships Lua 5.4, which no longer provides the global "bit32"
+-- library. lockbox.util.bit tries require("bit") first (bundled with
+-- Wireshark 4.4+) and falls back to bit32 on Lua 5.2.
+-- The bit library returns signed 32-bit values, while bit32 returned unsigned
+-- ones, so normalise the results to [0, 2^32) to keep the string.format("%x")
+-- logic below working exactly as it did with bit32.
+local bit = require("lockbox.util.bit")
+local function u32(n) return n % 4294967296 end
+local AND = function(a, b) return u32(bit.band(a, b)) end
+local OR = function(a, b) return u32(bit.bor(a, b)) end
+local XOR = function(a, b) return u32(bit.bxor(a, b)) end
+local LSHIFT = function(a, b) return u32(bit.lshift(a, b)) end
+local RSHIFT = function(a, b) return u32(bit.rshift(a, b)) end
 
 -- global variable to maintain roll over counter
 local rtp_sequence=0
